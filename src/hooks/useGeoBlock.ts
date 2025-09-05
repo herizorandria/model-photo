@@ -20,7 +20,7 @@ export default function useGeoBlock() {
       }
       const blockedCountries = data.blocked_countries;
       try {
-        const geo = await fetch('https://ipapi.co/json/').then(res => res.json());
+        const geo = await fetch('/api/geoip').then(res => res.json());
         if (!isMounted) return;
         if (blockedCountries.includes(geo.country_code)) {
           await supabase.from('geo_block_logs').insert({
@@ -43,4 +43,4 @@ export default function useGeoBlock() {
   }, []);
 
   return { isBlocked, loadingBlock };
-} 
+}
