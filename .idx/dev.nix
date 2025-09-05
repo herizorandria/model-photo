@@ -24,4 +24,5 @@
       };
     };
   };
+  services.docker.enable = true;
 }
