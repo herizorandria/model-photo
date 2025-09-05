@@ -36,25 +36,41 @@ const Chat: React.FC = () => {
   useEffect(() => {
     if (user) {
       const initializeChat = async () => {
-        const { data, error } = await supabase
-          .from('conversations')
-          .select('id')
+        // Check if the user is a participant in any conversation
+        const { data: participant, error: participantError } = await supabase
+          .from('participants')
+          .select('conversation_id')
           .eq('user_id', user.id)
           .single();
 
-        if (data) {
-          setConversationId(data.id);
+        if (participantError && participantError.code !== 'PGRST116') {
+          console.error('Error fetching participant:', participantError);
+          return;
+        }
+
+        if (participant) {
+          setConversationId(participant.conversation_id);
         } else {
+          // If no conversation exists, create a new one
           const { data: newConv, error: newConvError } = await supabase
             .from('conversations')
-            .insert({ user_id: user.id })
+            .insert({})
             .select('id')
             .single();
-          
+
           if (newConvError) {
             console.error('Error creating conversation:', newConvError);
           } else if (newConv) {
-            setConversationId(newConv.id);
+            // Add the current user as a participant
+            const { error: participantInsertError } = await supabase
+              .from('participants')
+              .insert({ conversation_id: newConv.id, user_id: user.id });
+
+            if (participantInsertError) {
+              console.error('Error adding participant:', participantInsertError);
+            } else {
+              setConversationId(newConv.id);
+            }
           }
         }
       };

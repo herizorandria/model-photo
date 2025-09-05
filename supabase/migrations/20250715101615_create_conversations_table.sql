@@ -46,11 +46,7 @@ USING (
   )
 );
 
-CREATE POLICY "Authenticated users can add participants to their conversations" ON participants
+CREATE POLICY "Authenticated users can add themselves as participants" ON participants
 FOR INSERT
 TO authenticated
-WITH CHECK (
-  conversation_id IN (
-    SELECT conversation_id FROM participants WHERE user_id = auth.uid()
-  )
-);
+WITH CHECK (user_id = auth.uid());
