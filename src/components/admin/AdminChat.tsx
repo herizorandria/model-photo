@@ -6,18 +6,19 @@ import { Paperclip, Send, X } from 'lucide-react';
 // Define types for our data
 interface Conversation {
   id: string;
-  user_id: string;
   created_at: string;
   status: 'open' | 'closed';
-  users: {
-    email: string;
-  } | null;
+  participants: {
+    users: {
+      email: string;
+    } | null;
+  }[];
 }
 
 interface Message {
   id: number;
-  content: string | null; // Content can be null
-  media_url?: string; // Media URL is optional
+  content: string | null; 
+  media_url?: string; 
   created_at: string;
   conversation_id: string;
   sender_id: string;
@@ -38,7 +39,14 @@ const AdminChat: React.FC = () => {
       setLoading(true);
       const { data, error } = await supabase
         .from('conversations')
-        .select('*, users(email)') // Join with users table to get email
+        .select(`
+          id,
+          created_at,
+          status,
+          participants:participants!inner(
+            users:profiles!inner(email)
+          )
+        `)
         .order('created_at', { ascending: false });
 
       if (error) {
@@ -166,7 +174,9 @@ const AdminChat: React.FC = () => {
             onClick={() => setSelectedConversation(convo)}
             className={`p-4 cursor-pointer hover:bg-gray-800 ${selectedConversation?.id === convo.id ? 'bg-gray-800' : ''}`}
           >
-            <p className="font-semibold">{convo.users?.email || 'Unknown User'}</p>
+            <p className="font-semibold">
+              {convo.participants[0]?.users?.email || 'Unknown User'}
+            </p>
             <p className="text-sm text-gray-400">{new Date(convo.created_at).toLocaleString()}</p>
             <span
               className={`text-xs font-bold uppercase px-2 py-1 rounded-full ${
@@ -184,7 +194,7 @@ const AdminChat: React.FC = () => {
         {selectedConversation ? (
           <>
             <div className="p-4 border-b border-gray-700">
-              <h3 className="text-lg font-bold">Chat with {selectedConversation.users?.email || 'Unknown User'}</h3>
+              <h3 className="text-lg font-bold">Chat with {selectedConversation.participants[0]?.users?.email || 'Unknown User'}</h3>
             </div>
             <div className="flex-1 p-4 overflow-y-auto">
               {messages.map((msg) => (
