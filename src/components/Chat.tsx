@@ -5,6 +5,20 @@ import { Paperclip, Send, X, LogOut } from 'lucide-react';
 import { useAuth } from '../hooks/useAuth';
 import AuthForm from './auth/AuthForm';
 
+interface Conversation {
+  id: string;
+  created_at: string;
+  status: string;
+}
+interface Message {
+  id: string;
+  content: string | null;
+  media_url?: string;
+  created_at: string;
+  conversation_id: string;
+  sender_id: string;
+}
+
 // Define types for our data
 interface Message {
   id: number;
@@ -21,6 +35,7 @@ const Chat: React.FC = () => {
   const [newMessage, setNewMessage] = useState('');
   const [mediaFile, setMediaFile] = useState<File | null>(null);
   const [conversationId, setConversationId] = useState<string | null>(null);
+  const [chatError, setChatError] = useState<string | null>(null);
   const messagesEndRef = useRef<null | HTMLDivElement>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
 
@@ -45,13 +60,14 @@ const Chat: React.FC = () => {
 
         if (participantError && participantError.code !== 'PGRST116') {
           console.error('Error fetching participant:', participantError);
+          setChatError("Erreur lors de la récupération de la conversation : " + participantError.message);
           return;
         }
 
         if (participant) {
           setConversationId(participant.conversation_id);
         } else {
-          // If no conversation exists, create a new one
+          // If no conversation exists, create a new one et récupère l'id directement
           const { data: newConv, error: newConvError } = await supabase
             .from('conversations')
             .insert({})
@@ -60,17 +76,20 @@ const Chat: React.FC = () => {
 
           if (newConvError) {
             console.error('Error creating conversation:', newConvError);
-          } else if (newConv) {
-            // Add the current user as a participant
-            const { error: participantInsertError } = await supabase
-              .from('participants')
-              .insert({ conversation_id: newConv.id, user_id: user.id });
+            setChatError("Erreur lors de la création de la conversation : " + newConvError.message);
+            return;
+          }
 
-            if (participantInsertError) {
-              console.error('Error adding participant:', participantInsertError);
-            } else {
-              setConversationId(newConv.id);
-            }
+          // Add the current user as a participant
+          const { error: participantInsertError } = await supabase
+            .from('participants')
+            .insert({ conversation_id: newConv.id, user_id: user.id });
+
+          if (participantInsertError) {
+            console.error('Error adding participant:', participantInsertError);
+            setChatError("Erreur lors de l'ajout du participant : " + participantInsertError.message);
+          } else {
+            setConversationId(newConv.id);
           }
         }
       };
@@ -98,20 +117,18 @@ const Chat: React.FC = () => {
 
       fetchMessages();
 
-      const messageSubscription = supabase
-        .channel(`messages:${conversationId}`)
+      // Gestion temps réel (realtime)
+      const channel = supabase
+        .channel(`realtime:messages:${conversationId}`)
         .on(
           'postgres_changes',
           { event: 'INSERT', schema: 'public', table: 'messages', filter: `conversation_id=eq.${conversationId}` },
           (payload) => {
-            setMessages((prevMessages) => [...prevMessages, payload.new as Message]);
+            setMessages((prev) => [...prev, payload.new as Message]);
           }
         )
         .subscribe();
-
-      return () => {
-        supabase.removeChannel(messageSubscription);
-      };
+      return () => { supabase.removeChannel(channel); };
     }
   }, [conversationId]);
 
@@ -124,6 +141,9 @@ const Chat: React.FC = () => {
   const handleSendMessage = async (e: React.FormEvent) => {
     e.preventDefault();
     if ((!newMessage.trim() && !mediaFile) || !conversationId || !user) return;
+
+    // Debug log
+    console.log('Sending message with:', { conversationId, userId: user.id });
 
     let media_url: string | undefined = undefined;
 
@@ -156,25 +176,29 @@ const Chat: React.FC = () => {
       setNewMessage('');
       setMediaFile(null);
       if (fileInputRef.current) {
-        fileInputRef.current.value = "";
+        fileInputRef.current.value = '';
       }
     }
   };
 
+  // Affichage avatar simple (initiale de l'user)
+  const renderAvatar = (msg: Message) => {
+    if (msg.sender_id === user?.id) return null;
+    return (
+      <div className="w-8 h-8 rounded-full bg-gray-600 flex items-center justify-center text-white font-bold mr-2">
+        {msg.sender_id?.slice(0, 2).toUpperCase()}
+      </div>
+    );
+  };
+
   const renderMedia = (msg: Message) => {
     if (!msg.media_url) return null;
-    
     const isImage = /\.(jpg|jpeg|png|gif)$/i.test(msg.media_url);
     const isVideo = /\.(mp4|webm|ogg)$/i.test(msg.media_url);
-
-    if (isImage) {
-      return <img src={msg.media_url} alt="Media content" className="max-w-xs rounded-lg mt-2" />;
-    } else if (isVideo) {
-      return <video src={msg.media_url} controls className="max-w-xs rounded-lg mt-2" />;
-    } else {
-      return <a href={msg.media_url} target="_blank" rel="noopener noreferrer" className="text-gold hover:underline">View Media</a>;
-    }
-  }
+    if (isImage) return <img src={msg.media_url} alt="Media content" className="max-w-xs rounded-lg mt-2" />;
+    if (isVideo) return <video src={msg.media_url} controls className="max-w-xs rounded-lg mt-2" />;
+    return <a href={msg.media_url} target="_blank" rel="noopener noreferrer" className="text-gold hover:underline">View Media</a>;
+  };
   
   if (!user) {
     return (
@@ -195,25 +219,29 @@ const Chat: React.FC = () => {
             </button>
         </div>
         <div className="messages-list flex-1 p-4 overflow-y-auto" style={{ height: 'calc(70vh - 140px)' }}>
-            {messages.map((msg) => (
-            <motion.div
-                key={msg.id}
-                initial={{ opacity: 0, y: 15 }}
-                animate={{ opacity: 1, y: 0 }}
-                transition={{ duration: 0.3 }}
-                className={`mb-4 flex ${msg.sender_id === user.id ? 'justify-end' : 'justify-start'}`}>
-                <div className={`p-3 rounded-lg max-w-xs lg:max-w-md ${msg.sender_id === user.id ? 'bg-gold text-black' : 'bg-gray-700 text-white'}`}>
-                    {msg.content && <p className="text-sm">{msg.content}</p>}
-                    {renderMedia(msg)}
-                    <span className="text-xs opacity-70 block text-right mt-1">
-                        {new Date(msg.created_at).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
-                    </span>
-                </div>
-            </motion.div>
-            ))}
+      {messages.map((msg) => (
+      <motion.div
+        key={msg.id}
+        initial={{ opacity: 0, y: 15 }}
+        animate={{ opacity: 1, y: 0 }}
+        transition={{ duration: 0.3 }}
+        className={`mb-4 flex ${msg.sender_id === user.id ? 'justify-end' : 'justify-start'}`}>
+        {msg.sender_id !== user.id && renderAvatar(msg)}
+        <div className={`p-3 rounded-lg max-w-xs lg:max-w-md ${msg.sender_id === user.id ? 'bg-gold text-black' : 'bg-gray-700 text-white'}`}>
+          {msg.content && <p className="text-sm">{msg.content}</p>}
+          {renderMedia(msg)}
+          <span className="text-xs opacity-70 block text-right mt-1">
+            {new Date(msg.created_at).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
+          </span>
+        </div>
+      </motion.div>
+      ))}
              <div ref={messagesEndRef} />
         </div>
         <div className="p-4 border-t border-gray-700">
+            {chatError && (
+              <div className="mb-2 text-red-500 text-sm font-semibold">{chatError}</div>
+            )}
             <form onSubmit={handleSendMessage} className="flex items-center bg-gray-800 rounded-full px-1 py-1">
                 <input
                 type="text"
@@ -226,7 +254,11 @@ const Chat: React.FC = () => {
                 <label htmlFor="client-file-upload" className="cursor-pointer p-2 rounded-full hover:bg-gray-700">
                   <Paperclip className="text-gray-400" />
                 </label>
-                <button type="submit" className="bg-gold text-black font-semibold rounded-full p-2.5 ml-1 hover:bg-yellow-400 transition-colors">
+                <button
+                  type="submit"
+                  className="bg-gold text-black font-semibold rounded-full p-2.5 ml-1 hover:bg-yellow-400 transition-colors disabled:opacity-50"
+                  disabled={!conversationId || !user || (!newMessage.trim() && !mediaFile)}
+                >
                     <Send size={18}/>
                 </button>
             </form>

@@ -1,11 +1,10 @@
 import React, { useEffect, useState } from 'react';
 import CountryBlockSelector from './CountryBlockSelector';
-import { createClient } from '@supabase/supabase-js';
 
 // À adapter selon ton setup
-const supabaseUrl = import.meta.env.VITE_SUPABASE_URL;
-const supabaseAnonKey = import.meta.env.VITE_SUPABASE_ANON_KEY;
-const supabase = createClient(supabaseUrl, supabaseAnonKey);
+// const supabaseUrl = import.meta.env.VITE_SUPABASE_URL;
+// const supabaseAnonKey = import.meta.env.VITE_SUPABASE_ANON_KEY;
+import { supabase } from '../../lib/supabase';
 
 const TABLE = 'geo_block_settings';
 
